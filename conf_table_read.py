@@ -13,7 +13,9 @@ Confluence 페이지(REST API body.storage)에서 표를 읽어
 """
 
 import re
+import os
 import argparse
+import getpass
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Dict, Any
 
@@ -21,6 +23,9 @@ import requests
 from bs4 import BeautifulSoup
 
 ISSUE_KEY_RE = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
+DEFAULT_CONF_BASE = os.getenv("CONF_BASE", "https://conf-stms.semes.com:18090")
+DEFAULT_CONF_CONTEXT = os.getenv("CONF_CONTEXT", "/wiki")
+DEFAULT_PAGE_ID = os.getenv("CONF_PAGE_ID", "")
 
 
 def _norm(s: str) -> str:
@@ -34,6 +39,15 @@ def _norm(s: str) -> str:
 
 def _cell_text(tag) -> str:
     return tag.get_text(" ", strip=True) if tag else ""
+
+
+def _prompt_if_empty(label: str, current: str, secret: bool = False) -> str:
+    if current:
+        return current
+    prompt = f"{label}: "
+    if secret:
+        return getpass.getpass(prompt)
+    return input(prompt).strip()
 
 
 @dataclass
@@ -285,14 +299,26 @@ def extract_target_column_rows(
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--conf-base", required=True)
-    ap.add_argument("--conf-context", default="")
-    ap.add_argument("--page-id", required=True)
-    ap.add_argument("--user", required=True)
-    ap.add_argument("--token", required=True)
+    ap.add_argument("--conf-base", default=DEFAULT_CONF_BASE)
+    ap.add_argument("--conf-context", default=DEFAULT_CONF_CONTEXT)
+    ap.add_argument("--page-id", default=DEFAULT_PAGE_ID)
+    ap.add_argument("--user", default=os.getenv("CONF_USER", ""))
+    ap.add_argument("--token", default=os.getenv("CONF_TOKEN", ""))
     ap.add_argument("--col", default="반영여부")
     ap.add_argument("--only-done", action="store_true", help="반영여부에 '완료'가 포함된 행만 출력")
     args = ap.parse_args()
+
+    if not args.conf_base or not args.page_id:
+        raise SystemExit(
+            "conf-base/page-id가 필요합니다. "
+            "환경변수 CONF_BASE/CONF_PAGE_ID를 설정하거나 옵션으로 전달하세요."
+        )
+
+    args.user = _prompt_if_empty("user", args.user)
+    args.token = _prompt_if_empty("token", args.token, secret=True)
+
+    if not args.user or not args.token:
+        raise SystemExit("user/token 값이 필요합니다.")
 
     cfg = ConfConfig(
         conf_base=args.conf_base,
