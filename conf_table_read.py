@@ -41,13 +41,15 @@ def _cell_text(tag) -> str:
     return tag.get_text(" ", strip=True) if tag else ""
 
 
-def _prompt_if_empty(label: str, current: str, secret: bool = False) -> str:
-    if current:
-        return current
+def _prompt_required(label: str, secret: bool = False) -> str:
     prompt = f"{label}: "
-    if secret:
-        return getpass.getpass(prompt)
-    return input(prompt).strip()
+    while True:
+        if secret:
+            value = getpass.getpass(prompt)
+        else:
+            value = input(prompt).strip()
+        if value:
+            return value
 
 
 @dataclass
@@ -314,11 +316,8 @@ def main():
             "환경변수 CONF_BASE/CONF_PAGE_ID를 설정하거나 옵션으로 전달하세요."
         )
 
-    args.user = _prompt_if_empty("user", args.user)
-    args.token = _prompt_if_empty("token", args.token, secret=True)
-
-    if not args.user or not args.token:
-        raise SystemExit("user/token 값이 필요합니다.")
+    args.user = _prompt_required("ID")
+    args.token = _prompt_required("비밀번호", secret=True)
 
     cfg = ConfConfig(
         conf_base=args.conf_base,
