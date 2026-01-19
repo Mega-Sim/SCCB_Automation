@@ -289,14 +289,37 @@ class App(tk.Tk):
             token=_safe_text(self.var_jira_token.get()),
         )
 
+        success_keys: set[str] = set()
+        failed_messages: list[tuple[str, str]] = []
+
         for it in selected:
             success, message = transition_issue_to_complete(jira_cfg, it.key, resolution)
             if success:
+                success_keys.add(it.key)
                 self._log(f" - {message}")
             else:
+                it.status = f"FAIL: {message}"
+                it.selected = False
+                failed_messages.append((it.key, message))
                 self._log(f" - {it.key} 전이 실패: {message}")
 
-        messagebox.showinfo("Complete", "선택된 이슈에 대한 Complete 처리 요청을 완료했습니다.\n로그를 확인하세요.")
+        if success_keys:
+            self.issues = [it for it in self.issues if it.key not in success_keys]
+
+        self._render_tree()
+
+        total = len(selected)
+        failed = len(failed_messages)
+        succeeded = total - failed
+        self._log(f"Complete summary: total={total} success={succeeded} failed={failed}")
+        if failed_messages:
+            for key, message in failed_messages:
+                self._log(f" - FAIL {key}: {message}")
+
+        messagebox.showinfo(
+            "Complete",
+            "선택된 이슈에 대한 Complete 처리 요청을 완료했습니다.\n로그를 확인하세요.",
+        )
 
     def on_tree_double_click(self, event) -> None:
         item_id = self.tree.identify_row(event.y)
