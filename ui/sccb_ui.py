@@ -22,6 +22,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List
 
+from conf_table_read_lib import ConfConfig, extract_target_column_rows, fetch_confluence_storage_html
+
+
+def _safe_text(value: str) -> str:
+    return value.strip() if value else ""
+
 
 @dataclass
 class IssueRow:
@@ -105,7 +111,12 @@ class App(tk.Tk):
         ttk.Entry(cred, textvariable=self.var_conf_base).grid(row=0, column=1, sticky="ew", padx=(5, 15))
 
         ttk.Label(cred, text="Page ID").grid(row=0, column=2, sticky="w")
-        ttk.Entry(cred, textvariable=self.var_conf_page_id, width=14).grid(row=0, column=3, sticky="w", padx=(5, 15))
+        ttk.Entry(cred, textvariable=self.var_conf_page_id, width=14).grid(
+            row=0,
+            column=3,
+            sticky="w",
+            padx=(5, 15),
+        )
 
         ttk.Label(cred, text="Jira Base").grid(row=0, column=4, sticky="w")
         ttk.Entry(cred, textvariable=self.var_jira_base).grid(row=0, column=5, sticky="ew", padx=(5, 0))
@@ -178,7 +189,7 @@ class App(tk.Tk):
 
         self.tree.bind("<Double-1>", self.on_tree_double_click)
 
-        hint = ttk.Label(mid, text="Tip: 행 더블클릭으로 선택 토글 (현재는 Skeleton mode)")
+        hint = ttk.Label(mid, text="Tip: 행 더블클릭으로 선택 토글")
         hint.grid(row=1, column=0, sticky="w", pady=(6, 0))
 
         # -------- Bottom: Log --------
@@ -198,16 +209,40 @@ class App(tk.Tk):
     # Events
     # -----------------------------
     def on_fetch(self) -> None:
-        """
-        1단계: UI 골격에서는 실제 API를 호출하지 않고,
-        데이터가 들어오는 흐름만 검증하기 위해 더미 이슈를 로드합니다.
-        """
         if not self._validate_basic_inputs():
             return
 
-        self._log("Fetching targets... (skeleton: load demo issues)")
-        self._load_demo_issues()
+        self._log("Fetching targets from Confluence...")
+
+        cfg = ConfConfig(
+            conf_base=_safe_text(self.var_conf_base.get()),
+            conf_context="/wiki",
+            page_id=_safe_text(self.var_conf_page_id.get()),
+            user=_safe_text(self.var_conf_user.get()),
+            token=_safe_text(self.var_conf_token.get()),
+        )
+
+        try:
+            storage = fetch_confluence_storage_html(cfg)
+            rows = extract_target_column_rows(storage, target_col_name="반영여부")
+        except Exception as exc:
+            self._log(f"Failed to fetch targets: {exc}")
+            messagebox.showerror("조회 실패", f"Confluence 조회 실패: {exc}")
+            return
+
+        issues: List[IssueRow] = []
+        seen = set()
+        for row in rows:
+            status = row.get("target_cell") or ""
+            for key in row.get("issue_keys", []):
+                if key in seen:
+                    continue
+                seen.add(key)
+                issues.append(IssueRow(False, key, summary="(Confluence table)", assignee="", status=status))
+
+        self.issues = sorted(issues, key=lambda item: item.key)
         self._render_tree()
+        self._log(f"Confluence rows={len(rows)} issues={len(self.issues)}")
 
     def on_complete_selected(self) -> None:
         """
@@ -264,14 +299,6 @@ class App(tk.Tk):
             return False
         return True
 
-    def _load_demo_issues(self) -> None:
-        # TODO(2단계): Confluence->JQL->Jira Search 결과로 대체
-        self.issues = [
-            IssueRow(False, "AMOHTV80F-1898", "[DEMO] Example issue 1", "박진", "In Verification"),
-            IssueRow(False, "AMOHTV80F-1880", "[DEMO] Example issue 2", "박진", "In Verification"),
-            IssueRow(False, "AMDIGMLDS-1405", "[DEMO] Example issue 3", "권용채", "In Verification"),
-        ]
-
     def _render_tree(self) -> None:
         self.tree.delete(*self.tree.get_children())
         self._tree_item_to_index.clear()
@@ -279,7 +306,7 @@ class App(tk.Tk):
         for idx, it in enumerate(self.issues):
             item_id = self.tree.insert(
                 "", "end",
-                values=("✔" if it.selected else "", it.key, it.summary, it.assignee, it.status)
+                values=("✔" if it.selected else "", it.key, it.summary, it.assignee, it.status),
             )
             self._tree_item_to_index[item_id] = idx
 
