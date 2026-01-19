@@ -28,6 +28,7 @@ from conf_table_read_lib import (
     extract_target_column_rows,
     fetch_confluence_storage_html,
 )
+from sccb_from_confluence_verbose import JiraConfig, transition_issue_to_complete
 
 
 def _safe_text(value: str) -> str:
@@ -269,20 +270,33 @@ class App(tk.Tk):
 
     def on_complete_selected(self) -> None:
         """
-        1단계: UI 골격에서는 실제 Complete 처리 대신,
-        선택된 대상 목록과 입력 파라미터를 로그에 출력합니다.
+        선택된 이슈를 Jira Complete 전이합니다.
         """
+        if not self._validate_jira_inputs():
+            return
+
         selected = [it for it in self.issues if it.selected]
         if not selected:
             messagebox.showinfo("알림", "선택된 이슈가 없습니다.")
             return
 
         resolution = self.var_resolution_name.get().strip()
-        self._log(f"Complete clicked. selected={len(selected)} resolution='{resolution}' (skeleton)")
-        for it in selected:
-            self._log(f" - {it.key} ({it.status})")
+        self._log(f"Complete clicked. selected={len(selected)} resolution='{resolution}'")
 
-        messagebox.showinfo("Skeleton", "현재는 UI 골격 단계입니다.\n다음 단계에서 실제 Complete API를 연결합니다.")
+        jira_cfg = JiraConfig(
+            jira_base=_safe_text(self.var_jira_base.get()),
+            user=_safe_text(self.var_jira_user.get()),
+            token=_safe_text(self.var_jira_token.get()),
+        )
+
+        for it in selected:
+            success, message = transition_issue_to_complete(jira_cfg, it.key, resolution)
+            if success:
+                self._log(f" - {message}")
+            else:
+                self._log(f" - {it.key} 전이 실패: {message}")
+
+        messagebox.showinfo("Complete", "선택된 이슈에 대한 Complete 처리 요청을 완료했습니다.\n로그를 확인하세요.")
 
     def on_tree_double_click(self, event) -> None:
         item_id = self.tree.identify_row(event.y)
@@ -319,6 +333,21 @@ class App(tk.Tk):
             return False
         if not self.var_jira_token.get().strip():
             messagebox.showerror("입력 오류", "Jira Token을 입력하세요.")
+            return False
+        return True
+
+    def _validate_jira_inputs(self) -> bool:
+        if not self.var_jira_base.get().strip():
+            messagebox.showerror("입력 오류", "Jira Base를 입력하세요.")
+            return False
+        if not self.var_jira_user.get().strip():
+            messagebox.showerror("입력 오류", "Jira User를 입력하세요.")
+            return False
+        if not self.var_jira_token.get().strip():
+            messagebox.showerror("입력 오류", "Jira Token을 입력하세요.")
+            return False
+        if not self.var_resolution_name.get().strip():
+            messagebox.showerror("입력 오류", "Resolution을 입력하세요.")
             return False
         return True
 
