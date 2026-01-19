@@ -1,4 +1,4 @@
-# SCCB_Automation
+# 스쓰쓰브_Automation
 
 ## 시작하기
 
