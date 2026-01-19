@@ -289,3 +289,33 @@ def extract_target_column_rows(
             })
 
     return results
+
+
+def analyze_storage_for_target_column(
+    storage_xhtml: str,
+    target_col_name: str = "반영여부",
+) -> Dict[str, bool]:
+    soup = BeautifulSoup(storage_xhtml, "lxml")
+    tables = soup.find_all("table")
+    if not tables:
+        return {"has_table": False, "has_target_column": False}
+
+    target_n = normalize_text(target_col_name)
+    for table in tables:
+        rows = table.find_all("tr")
+        if len(rows) < 2:
+            continue
+
+        header_cnt = _detect_header_row_count(rows)
+        header_rows = rows[:header_cnt]
+        if not header_rows:
+            continue
+
+        header_grid = _build_header_grid(header_rows)
+        columns = _compose_columns(header_grid)
+
+        for col in columns:
+            if target_n in normalize_text(col):
+                return {"has_table": True, "has_target_column": True}
+
+    return {"has_table": True, "has_target_column": False}

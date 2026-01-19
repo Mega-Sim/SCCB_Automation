@@ -22,7 +22,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import List
 
-from conf_table_read_lib import ConfConfig, extract_target_column_rows, fetch_confluence_storage_html
+from conf_table_read_lib import (
+    ConfConfig,
+    analyze_storage_for_target_column,
+    extract_target_column_rows,
+    fetch_confluence_storage_html,
+)
 
 
 def _safe_text(value: str) -> str:
@@ -224,10 +229,28 @@ class App(tk.Tk):
 
         try:
             storage = fetch_confluence_storage_html(cfg)
+        except Exception as exc:
+            self._handle_fetch_exception(exc)
+            return
+
+        try:
             rows = extract_target_column_rows(storage, target_col_name="반영여부")
         except Exception as exc:
-            self._log(f"Failed to fetch targets: {exc}")
-            messagebox.showerror("조회 실패", f"Confluence 조회 실패: {exc}")
+            self._log(f"파싱 실패 (jql 또는 table not found): {exc}")
+            messagebox.showerror("파싱 실패", f"파싱 실패 (jql 또는 table not found): {exc}")
+            return
+
+        parse_info = analyze_storage_for_target_column(storage, target_col_name="반영여부")
+        if not parse_info["has_table"] or not parse_info["has_target_column"]:
+            self._log("파싱 실패 (jql 또는 table not found)")
+            messagebox.showerror("파싱 실패", "파싱 실패 (jql 또는 table not found)")
+            return
+
+        if not rows:
+            self.issues = []
+            self._render_tree()
+            self._log("조회 결과 0건")
+            messagebox.showinfo("조회 결과", "조회 결과 0건")
             return
 
         issues: List[IssueRow] = []
@@ -327,6 +350,30 @@ class App(tk.Tk):
         line = f"[{ts}] {msg}\n"
         self.txt_log.insert("end", line)
         self.txt_log.see("end")
+
+    def _handle_fetch_exception(self, exc: Exception) -> None:
+        message = str(exc)
+        status_code = self._extract_status_code(message)
+        if status_code in {"401", "403"}:
+            self._log(f"인증 실패 (401/403): status={status_code}")
+            messagebox.showerror("인증 실패", f"인증 실패 (401/403): status={status_code}")
+            return
+        self._log(f"Confluence 조회 실패: {message}")
+        messagebox.showerror("조회 실패", f"Confluence 조회 실패: {message}")
+
+    @staticmethod
+    def _extract_status_code(message: str) -> str | None:
+        marker = "status="
+        if marker not in message:
+            return None
+        tail = message.split(marker, 1)[1].strip()
+        digits = ""
+        for ch in tail:
+            if ch.isdigit():
+                digits += ch
+            else:
+                break
+        return digits or None
 
 
 def main() -> None:
